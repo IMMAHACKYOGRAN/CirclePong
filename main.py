@@ -2,7 +2,7 @@ import pygame
 import math
 from pygame.constants import K_a, K_d
 import pygame.gfxdraw
-import numpy as mathbutbetter
+import sys
 
 pygame.init()
 width, height = 960, 720
@@ -14,24 +14,19 @@ paddlecolour = (245, 111, 91)
 ballcolour = (148, 178, 136)
 multiplyer = 0.001
 radius = 300
-keys = [False, # Left
-        False] # Right
-#play = False
+keys = [False, #left
+        False, #right
+        False] #interact
+score = 0
 
 class Ball:
     def __init__(self, origin, r):
         self.origin = origin
         self.speed = 1
         self.r = r
+        self.angle = 0
         self.pos = pygame.math.Vector2(origin.x, origin.y)
-        self.vel = pygame.math.Vector2(0, -0.1)
-        self.left = self.pos.x - self.r / 2
-        self.right = self.pos.x + self.r / 2
-        self.top = self.pos.y + self.r / 2
-        self.bottom = self.pos.y - self.r / 2
-        
-    def getVels(self):
-        pass
+        self.vel = pygame.math.Vector2(0.1, 0) 
 
     def move(self):
         self.pos.x += self.vel.x
@@ -44,6 +39,11 @@ class Ball:
         if math.sqrt(math.pow(self.pos.x - player.center.x, 2) + math.pow(self.pos.y - player.center.y, 2)) > radius:
             pass
 
+    def changeVels(self):
+        if player.isColliding(self.pos, self.r, player.points):
+            self.vel.x = -self.vel.x
+            self.vel.y = -self.vel.y
+
 class Paddle:
     def __init__(self, r, paddlelength, paddleheight, colour, sens):
         self.angle = 0
@@ -55,29 +55,113 @@ class Paddle:
         self.x = 0
         self.y = 0
         self.center = pygame.math.Vector2(width / 2, height / 2)
-        self.points = [
-            self.rotatepoint((self.x, self.y), self.angle, self.center), 
-            self.rotatepoint((self.x + self.paddlelength, self.y), self.angle, self.center), 
-            self.rotatepoint((self.x + self.paddlelength, self.y + self.paddleheight), self.angle, self.center), 
-            self.rotatepoint((self.x, self.y + self.paddleheight), self.angle, self.center)]
+        self.points = []
 
-    def getCollision(self):
-        #update points
-        self.points = [
-            self.rotatepoint((self.x, self.y), self.angle, self.center), 
-            self.rotatepoint((self.x + self.paddlelength, self.y), self.angle, self.center), 
-            self.rotatepoint((self.x + self.paddlelength, self.y + self.paddleheight), self.angle, self.center), 
-            self.rotatepoint((self.x, self.y + self.paddleheight), self.angle, self.center)]
+    def projectVerticies(self, verticies, axis):
+        min = sys.float_info.max
+        max = sys.float_info.min
 
-        #find closest vertex to circle
-        pointDists = []
-        for point in self.points:
-            dist = math.sqrt(math.pow(ball.pos.x - point[0], 2) + math.pow(ball.pos.y - point[1], 2))
-            pointDists.append(dist)
+        for i in range(len(verticies)):
+            v = verticies[i]
+            projection = dot(v, axis)
+            if projection < min: min = projection
+            if projection > max: max = projection
+            
+        return min, max
+
+    def projectCircle(self, pos, r, axis):
+        direction = customNomalize(axis)
+        DAR = (direction[0] * r, direction[1] * r)
+        p1 = (pos[0] + DAR[0], pos[1] + DAR[1])
+        p2 = (pos[0] - DAR[0], pos[1] - DAR[1])
+
+        min = dot(p1, axis)
+        max = dot(p2, axis)
+
+        #Failsafe for if the value are somehow swaped
+        if min > max:
+            a = min
+            min = max
+            max = a
+
+        return min, max
+
+    def getClosestPoint(self, circlepos, verticies):
+        r = -1
+        minDist = sys.float_info.max
+        for i in range(len(verticies)):
+            v = verticies[i]
+            dist = (math.sqrt(math.pow(v[0], 2) + math.pow(circlepos.x, 2)), math.sqrt(math.pow(v[1], 2) + math.pow(circlepos.y, 2)))
+
+            if(dist[0] < minDist and dist[1] < minDist):
+                minDist = dist
+                r = i
+
+            return r
+
+    def findCenter(self, verticies):
+        sx = 0
+        sy = 0
+        for i in range(len(verticies)):
+            v = verticies[i]
+            sx += v[0]
+            sy += v[1]
         
-        closestPoint = min(pointDists)
-        #if distance to closest point on edge is less than ball.r {return true}
-            #print("BALL HAS COLLIDED WITH THE PONG")
+        return (sx / len(verticies), sy / len(verticies))
+
+    def isColliding(self, circlepos, circler, verticies):
+        normal = (0, 0)
+        depth = sys.float_info.max
+        axis = (0, 0)
+        axisDepth = 0
+
+        for i in range(len(verticies)):
+            a = verticies[i]
+            b = verticies[(i + 1) % len(verticies)]
+            edge = (b[0] - a[0], b[1] - a[1])
+            axis = (-edge[1], edge[0])
+
+            cv = self.projectCircle(circlepos, circler, axis)
+            pv = self.projectVerticies(verticies, axis)
+
+            if pv[0] >= cv[1] or cv[0] >= pv[1]:
+                return False
+
+            axisDepth = min(cv[1] - pv[0], pv[1] - cv[0])
+
+            if axisDepth < depth:
+                depth = axisDepth
+                normal = axis
+
+        cpi = self.getClosestPoint(circlepos, verticies)       
+        cpv = verticies[cpi]
+
+        axis = (cpv[0] - circlepos[0], cpv[1] - circlepos[1])
+
+        cv = self.projectCircle(circlepos, circler, axis)
+        pv = self.projectVerticies(verticies, axis)
+
+        if pv[0] >= cv[1] or cv[0] >= pv[1]:
+            return False
+
+        axisDepth = min(cv[1] - pv[0], pv[1] - cv[0])
+
+        if axisDepth < depth:
+            depth = axisDepth
+            normal = axis
+
+        depth /= math.sqrt(normal[0] * normal[0] + normal[1] * normal[1])
+        normal = customNomalize(normal)
+
+        polygonCenter = self.findCenter(verticies)
+
+        direction = (polygonCenter[0] - circlepos.x, polygonCenter[1] - circlepos.y)
+
+        if dot(direction, normal) < 0:
+            normal[0] - 2 * normal[0]
+            normal[1] - 2 * normal[1]
+        
+        return True
 
     def move(self):
         if keys[0] == True:
@@ -97,20 +181,16 @@ class Paddle:
         y = math.sin(angle) * (point[0] - origin.x) + math.cos(angle) * (point[1] - origin.y) + origin.y
         return x, y
 
+    def updatePoints(self):
+        self.points = [
+            self.rotatepoint((self.x, self.y), self.angle, self.center), 
+            self.rotatepoint((self.x + self.paddlelength, self.y), self.angle, self.center), 
+            self.rotatepoint((self.x + self.paddlelength, self.y + self.paddleheight), self.angle, self.center), 
+            self.rotatepoint((self.x, self.y + self.paddleheight), self.angle, self.center)]
+
     def draw(self):
-        pygame.gfxdraw.aapolygon(ctx, 
-        [self.rotatepoint((self.x, self.y), self.angle, self.center), 
-        self.rotatepoint((self.x + self.paddlelength, self.y), self.angle, self.center), 
-        self.rotatepoint((self.x + self.paddlelength, self.y + self.paddleheight), self.angle, self.center), 
-        self.rotatepoint((self.x, self.y + self.paddleheight), self.angle, self.center)], self.colour)
-
-        pygame.draw.polygon(ctx, self.colour, 
-        [self.rotatepoint((self.x, self.y), self.angle, self.center), #top left point
-        self.rotatepoint((self.x + self.paddlelength, self.y), self.angle, self.center), #top right point
-        self.rotatepoint((self.x + self.paddlelength, self.y + self.paddleheight), self.angle, self.center), #bottom right point 
-        self.rotatepoint((self.x, self.y + self.paddleheight), self.angle, self.center)]) #bottom left point
-
-        #pygame.draw.aaline(ctx, (255, 255, 0), ball.pos, (self.closestPoint, self.closestPoint))
+        pygame.gfxdraw.aapolygon(ctx, self.points, self.colour)
+        pygame.draw.polygon(ctx, self.colour, self.points)
 
     def getCoordinates(self): # Converts Polar coordinate to cartiesian.
         self.x = self.r * math.cos(self.angle / radius + radius) + self.center.x - self.paddlelength / 2
@@ -118,6 +198,15 @@ class Paddle:
 
 player = Paddle(radius, 150, 25, paddlecolour, 2)
 ball = Ball(player.center, 10)
+
+#Custom normalize function cuz python is bad and doesnt have one built in
+def customNomalize(v):
+    length = math.sqrt(math.pow(v[0], 2) + math.pow(v[1], 2))
+    return (v[0] / length, v[1] / length)
+
+#Custom dot product function cuz python is bad and doesnt have one built in
+def dot(a, b):
+    return a[0] * b[0] + a[1] * b[1]
 
 def render():
     ctx.fill(bgcolour)
@@ -127,10 +216,11 @@ def render():
 
 def update():
     player.getCoordinates()
+    player.updatePoints()
     player.move()
     ball.move()
+    ball.changeVels()
     ball.inbounds()
-    player.getCollision()
     render()
 
 while True:
@@ -168,4 +258,5 @@ https://www.youtube.com/watch?v=-EsWKT7Doww
 https://www.youtube.com/watch?v=RBya4M6SWwk
 https://stackoverflow.com/questions/3499026/find-a-minimum-value-in-an-array-of-floats
 https://www.w3schools.com/python/python_arrays.asp
+https://www.youtube.com/watch?v=vWs33LVrs74
 """
