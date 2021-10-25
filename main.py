@@ -1,12 +1,14 @@
 import pygame
 import math
-from pygame.constants import K_a, K_d
+from pygame.constants import K_a, K_d, K_SPACE
 import pygame.gfxdraw
 import sys
 
 pygame.init()
 width, height = 960, 720
 ctx = pygame.display.set_mode((width, height))
+pygame.font.init()
+text = pygame.font.SysFont('arial', 255)
 
 bgcolour = (15, 17, 27)
 circlecolour = (255, 255, 255)
@@ -17,36 +19,42 @@ radius = 300
 keys = [False, #left
         False, #right
         False] #interact
-score = 0
 
 class Ball:
     def __init__(self, origin, r):
         self.origin = origin
-        self.speed = 1
+        self.speed = 0
         self.r = r
         self.angle = 0
         self.pos = pygame.math.Vector2(origin.x, origin.y)
-        self.vel = pygame.math.Vector2(0.1, 0) 
+        self.lastpos = pygame.math.Vector2(0, 0)
 
     def move(self):
-        self.pos.x += self.vel.x
-        self.pos.y += self.vel.y
+        self.lastpos.x = self.pos.x
+        self.lastpos.y = self.pos.y
+        self.pos.x += math.sin(self.angle) * self.speed
+        self.pos.y += math.cos(self.angle) * self.speed
     
     def draw(self):
         pygame.draw.circle(ctx, ballcolour, self.pos, self.r)
     
     def inbounds(self):
         if math.sqrt(math.pow(self.pos.x - player.center.x, 2) + math.pow(self.pos.y - player.center.y, 2)) > radius:
-            pass
+            player.init()
 
     def changeVels(self):
         if player.isColliding(self.pos, self.r, player.points):
-            self.vel.x = -self.vel.x
-            self.vel.y = -self.vel.y
+            while player.isColliding(self.pos, self.r, player.points):
+                self.pos.x -= math.sin(self.angle) * self.speed
+                self.pos.y -= math.cos(self.angle) * self.speed
+            self.angle = player.angle - 2 * (self.angle)
+            print(self.angle)
+            player.score += 1
 
 class Paddle:
     def __init__(self, r, paddlelength, paddleheight, colour, sens):
         self.angle = 0
+        self.score = 0
         self.r = r
         self.paddlelength = paddlelength
         self.paddleheight = paddleheight
@@ -54,6 +62,8 @@ class Paddle:
         self.sens = sens * multiplyer
         self.x = 0
         self.y = 0
+        self.normal = (0, 0)
+        self.depth = sys.float_info.max
         self.center = pygame.math.Vector2(width / 2, height / 2)
         self.points = []
 
@@ -110,8 +120,8 @@ class Paddle:
         return (sx / len(verticies), sy / len(verticies))
 
     def isColliding(self, circlepos, circler, verticies):
-        normal = (0, 0)
-        depth = sys.float_info.max
+        self.normal = (0, 0)
+        self.depth = sys.float_info.max
         axis = (0, 0)
         axisDepth = 0
 
@@ -129,9 +139,9 @@ class Paddle:
 
             axisDepth = min(cv[1] - pv[0], pv[1] - cv[0])
 
-            if axisDepth < depth:
-                depth = axisDepth
-                normal = axis
+            if axisDepth < self.depth:
+                self.depth = axisDepth
+                self.normal = axis
 
         cpi = self.getClosestPoint(circlepos, verticies)       
         cpv = verticies[cpi]
@@ -146,20 +156,20 @@ class Paddle:
 
         axisDepth = min(cv[1] - pv[0], pv[1] - cv[0])
 
-        if axisDepth < depth:
-            depth = axisDepth
-            normal = axis
+        if axisDepth < self.depth:
+            self.depth = axisDepth
+            self.normal = axis
 
-        depth /= math.sqrt(normal[0] * normal[0] + normal[1] * normal[1])
-        normal = customNomalize(normal)
+        self.depth /= math.sqrt(self.normal[0] * self.normal[0] + self.normal[1] * self.normal[1])
+        self.normal = customNomalize(self.normal)
 
         polygonCenter = self.findCenter(verticies)
 
         direction = (polygonCenter[0] - circlepos.x, polygonCenter[1] - circlepos.y)
 
-        if dot(direction, normal) < 0:
-            normal[0] - 2 * normal[0]
-            normal[1] - 2 * normal[1]
+        if dot(direction, self.normal) < 0:
+            self.normal[0] - 2 * self.normal[0]
+            self.normal[1] - 2 * self.normal[1]
         
         return True
 
@@ -175,6 +185,9 @@ class Paddle:
                 self.angle += self.sens
             else:
                 self.angle = 0 + self.sens
+
+        if keys[2] == True:
+            ball.speed = 0.1
 
     def rotatepoint(self, point, angle, origin):
         x = math.cos(angle) * (point[0] - origin.x) - math.sin(angle) * (point[1] - origin.y) + origin.x
@@ -196,6 +209,19 @@ class Paddle:
         self.x = self.r * math.cos(self.angle / radius + radius) + self.center.x - self.paddlelength / 2
         self.y = self.r * math.sin(self.angle / radius + radius) + self.center.y
 
+    def init(self):
+        self.angle = 0
+        self.score = 0
+        self.x = 0
+        self.y = 0
+        self.normal = (0, 0)
+        self.depth = sys.float_info.max
+        self.center = pygame.math.Vector2(width / 2, height / 2)
+        ball.angle = 0
+        ball.speed = 0
+        ball.pos = pygame.math.Vector2(ball.origin.x, ball.origin.y)
+        ball.lastpos = pygame.math.Vector2(0, 0)
+
 player = Paddle(radius, 150, 25, paddlecolour, 2)
 ball = Ball(player.center, 10)
 
@@ -211,6 +237,8 @@ def dot(a, b):
 def render():
     ctx.fill(bgcolour)
     pygame.gfxdraw.aacircle(ctx, math.floor(player.center.x), math.floor(player.center.y), radius, circlecolour)
+    renderscore = text.render(str(player.score), True, (255, 255, 255))
+    ctx.blit(renderscore, (width / 2 - text.get_linesize() / 4, height / 2 - text.get_height() / 2))
     player.draw()
     ball.draw()
 
@@ -222,6 +250,7 @@ def update():
     ball.changeVels()
     ball.inbounds()
     render()
+    print(player.score)
 
 while True:
 
@@ -236,12 +265,17 @@ while True:
                 keys[0] = True
             if event.key == K_d:
                 keys[1] = True
+            if event.key == K_SPACE:
+                keys[2] = True
+
                 
         if event.type == pygame.KEYUP:
             if event.key == K_a:
                 keys[0] = False
             if event.key == K_d:
                 keys[1] = False
+            if event.key == K_SPACE:
+                keys[2] = False
 
     pygame.display.flip()
 
