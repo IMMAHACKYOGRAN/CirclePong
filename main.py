@@ -250,7 +250,6 @@ def update():
     ball.changeVels()
     ball.inbounds()
     render()
-    print(player.score)
 
 while True:
 
